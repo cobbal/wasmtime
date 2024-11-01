@@ -1102,6 +1102,19 @@ unsafe fn check_malloc(instance: &mut Instance, addr: u32, len: u32) -> Result<u
     Ok(0)
 }
 
+// Hook for validating calloc using wmemcheck_state.
+#[cfg(feature = "wmemcheck")]
+unsafe fn check_calloc(instance: &mut Instance, addr: u32, count: u32, size: u32) -> Result<u32> {
+    check_malloc(instance, addr, count * size)
+}
+
+// Hook for validating realloc using wmemcheck_state.
+#[cfg(feature = "wmemcheck")]
+unsafe fn check_realloc(instance: &mut Instance, end_addr: u32, start_addr: u32, len: u32) -> Result<u32> {
+    check_free(instance, start_addr)?;
+    check_malloc(instance, end_addr, len)
+}
+
 // Hook for validating free using wmemcheck_state.
 #[cfg(feature = "wmemcheck")]
 unsafe fn check_free(instance: &mut Instance, addr: u32) -> Result<u32> {
@@ -1123,6 +1136,30 @@ unsafe fn check_free(instance: &mut Instance, addr: u32) -> Result<u32> {
     Ok(0)
 }
 
+#[cfg(feature = "wmemcheck")]
+fn log_allocation_previous_to(instance: &mut Instance, addr: usize) {
+    if let Some(wmemcheck_state) = &mut instance.wmemcheck_state {
+        if let Some((prev_malloc, prev_len)) = wmemcheck_state.malloc_previous_to(addr) {
+            println!("previous malloc'd range was {:#x}..{:#x}", prev_malloc, prev_malloc + prev_len);
+            for (_, entry) in instance.exports() {
+                if let wasmtime_environ::EntityIndex::Memory(mem_index) = entry {
+                    let mem = instance.get_memory(*mem_index);
+                    for i in 0..prev_len {
+                        if i > 0 && i % 40 == 0 {
+                            println!();
+                        }
+                        unsafe {
+                            print!("{:02x} ", *mem.base.offset((prev_malloc + i) as isize));
+                        }
+                    }
+                    println!();
+                    break
+                }
+            }
+        }
+    }
+}
+
 // Hook for validating load using wmemcheck_state.
 #[cfg(feature = "wmemcheck")]
 fn check_load(instance: &mut Instance, num_bytes: u32, addr: u32, offset: u32) -> Result<u32> {
@@ -1133,6 +1170,7 @@ fn check_load(instance: &mut Instance, num_bytes: u32, addr: u32, offset: u32) -
                 return Ok(0);
             }
             Err(InvalidRead { addr, len }) => {
+                log_allocation_previous_to(instance, addr);
                 bail!("Invalid load at addr {:#x} of size {}", addr, len);
             }
             Err(OutOfBounds { addr, len }) => {
@@ -1156,6 +1194,7 @@ fn check_store(instance: &mut Instance, num_bytes: u32, addr: u32, offset: u32) 
                 return Ok(0);
             }
             Err(InvalidWrite { addr, len }) => {
+                log_allocation_previous_to(instance, addr);
                 bail!("Invalid store at addr {:#x} of size {}", addr, len)
             }
             Err(OutOfBounds { addr, len }) => {
@@ -1169,19 +1208,17 @@ fn check_store(instance: &mut Instance, num_bytes: u32, addr: u32, offset: u32) 
     Ok(0)
 }
 
-// Hook for turning wmemcheck load/store validation off when entering a malloc function.
 #[cfg(feature = "wmemcheck")]
-fn malloc_start(instance: &mut Instance) {
+fn memcheck_off(instance: &mut Instance) {
     if let Some(wmemcheck_state) = &mut instance.wmemcheck_state {
         wmemcheck_state.memcheck_off();
     }
 }
 
-// Hook for turning wmemcheck load/store validation off when entering a free function.
 #[cfg(feature = "wmemcheck")]
-fn free_start(instance: &mut Instance) {
+fn memcheck_on(instance: &mut Instance) {
     if let Some(wmemcheck_state) = &mut instance.wmemcheck_state {
-        wmemcheck_state.memcheck_off();
+        wmemcheck_state.memcheck_on();
     }
 }
 
