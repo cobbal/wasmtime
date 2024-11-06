@@ -628,6 +628,24 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
         builder.ins().call(check_realloc, &[vmctx, retval, ptr, len]);
     }
 
+    #[cfg(feature = "wmemcheck")]
+    fn hook_posix_memalign_exit(&mut self, builder: &mut FunctionBuilder) {
+        let check_posix_memalign = self.builtin_functions.check_posix_memalign(builder.func);
+        let vmctx = self.vmctx_val(&mut builder.cursor());
+        let func_args = builder
+            .func
+            .dfg
+            .block_params(builder.func.layout.entry_block().unwrap());
+        let (outptr, alignment, size) = if func_args.len() < 5 {
+            return;
+        } else {
+            // If a function named `malloc` has at least one argument, we assume the
+            // first argument is the requested allocation size.
+            (func_args[2], func_args[3], func_args[4])
+        };
+        builder.ins().call(check_posix_memalign, &[vmctx, outptr, size]);
+    }
+
 
     #[cfg(feature = "wmemcheck")]
     fn hook_free_exit(&mut self, builder: &mut FunctionBuilder) {
@@ -3213,6 +3231,10 @@ impl<'module_environment> crate::translate::FuncEnvironment
                     self.hook_memcheck_off(builder),
                 Some("malloc_usable_size") =>
                     self.hook_memcheck_off(builder),
+                Some("posix_memalign") =>
+                    self.hook_memcheck_off(builder),
+                // Some("aligned_alloc") =>
+                //     self.hook_memcheck_off(builder),
                 Some("free") =>
                     self.hook_memcheck_off(builder),
                 _ => ()
@@ -3273,6 +3295,9 @@ impl<'module_environment> crate::translate::FuncEnvironment
                     self.hook_realloc_exit(builder, retvals),
                 Some("malloc_usable_size") =>
                     self.hook_memcheck_on(builder),
+                Some("posix_memalign") =>
+                    self.hook_posix_memalign_exit(builder),
+                // Some("aligned_alloc") =>
                 Some("free") =>
                     self.hook_free_exit(builder),
                 _ => ()

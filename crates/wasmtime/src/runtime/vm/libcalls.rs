@@ -1115,6 +1115,23 @@ unsafe fn check_realloc(instance: &mut Instance, end_addr: u32, start_addr: u32,
     check_malloc(instance, end_addr, len)
 }
 
+// Hook for validating posix_memalign using wmemcheck_state.
+#[cfg(feature = "wmemcheck")]
+unsafe fn check_posix_memalign(instance: &mut Instance, outptr: u32, size: u32) -> Result<u32> {
+    for (_, entry) in instance.exports() {
+        if let wasmtime_environ::EntityIndex::Memory(mem_index) = entry {
+            let mem = instance.get_memory(*mem_index);
+            let b3 = *mem.base.offset(outptr as isize + 0) as u32;
+            let b2 = *mem.base.offset(outptr as isize + 1) as u32;
+            let b1 = *mem.base.offset(outptr as isize + 2) as u32;
+            let b0 = *mem.base.offset(outptr as isize + 3) as u32;
+            let out = (b3 << 24) + (b2 << 16) + (b1 << 8) + b0;
+            return check_malloc(instance, out, size)
+        }
+    }
+    todo!("Why is there no memory?")
+}
+
 // Hook for validating free using wmemcheck_state.
 #[cfg(feature = "wmemcheck")]
 unsafe fn check_free(instance: &mut Instance, addr: u32) -> Result<u32> {
