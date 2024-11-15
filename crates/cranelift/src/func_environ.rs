@@ -629,6 +629,27 @@ impl<'module_environment> FuncEnvironment<'module_environment> {
     }
 
     #[cfg(feature = "wmemcheck")]
+    fn hook_malloc_usable_size_exit(&mut self, builder: &mut FunctionBuilder, retvals: &[ir::Value]) {
+        let check_malloc_usable_size = self.builtin_functions.check_malloc_usable_size(builder.func);
+        let vmctx = self.vmctx_val(&mut builder.cursor());
+        let func_args = builder
+            .func
+            .dfg
+            .block_params(builder.func.layout.entry_block().unwrap());
+        let ptr = if func_args.len() < 3 {
+            return;
+        } else {
+            func_args[2]
+        };
+        let retval = if retvals.len() < 1 {
+            return;
+        } else {
+            retvals[0]
+        };
+        builder.ins().call(check_malloc_usable_size, &[vmctx, retval, ptr]);
+    }
+
+    #[cfg(feature = "wmemcheck")]
     fn hook_posix_memalign_exit(&mut self, builder: &mut FunctionBuilder) {
         let check_posix_memalign = self.builtin_functions.check_posix_memalign(builder.func);
         let vmctx = self.vmctx_val(&mut builder.cursor());
@@ -3259,6 +3280,8 @@ impl<'module_environment> crate::translate::FuncEnvironment
                     self.hook_memcheck_off(builder),
                 Some("__wrap_free") | Some("free") =>
                     self.hook_memcheck_off(builder),
+                Some("malloc_stats") =>
+                    self.hook_memcheck_off(builder),
                 _ => ()
             }
         }
@@ -3317,13 +3340,15 @@ impl<'module_environment> crate::translate::FuncEnvironment
                 Some("__wrap_realloc") | Some("realloc") =>
                     self.hook_realloc_exit(builder, retvals),
                 Some("__wrap_malloc_usable_size") | Some("malloc_usable_size") =>
-                    self.hook_memcheck_on(builder),
+                    self.hook_malloc_usable_size_exit(builder, retvals),
                 Some("__wrap_posix_memalign") | Some("posix_memalign") =>
                     self.hook_posix_memalign_exit(builder),
                 Some("__wrap_aligned_alloc") | Some("aligned_alloc") =>
                     self.hook_aligned_alloc(builder, retvals),
                 Some("__wrap_free") | Some("free") =>
                     self.hook_free_exit(builder),
+                Some("malloc_stats") =>
+                    self.hook_memcheck_on(builder),
                 _ => ()
             }
         }

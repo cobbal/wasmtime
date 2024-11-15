@@ -1115,6 +1115,14 @@ unsafe fn check_realloc(instance: &mut Instance, end_addr: u32, start_addr: u32,
     check_malloc(instance, end_addr, len)
 }
 
+// Hook for validating malloc_usable_size using wmemcheck_state.
+#[cfg(feature = "wmemcheck")]
+unsafe fn check_malloc_usable_size(instance: &mut Instance, len: u32, addr: u32) -> Result<u32> {
+    check_free(instance, addr)?;
+    check_malloc(instance, addr, len)
+}
+
+
 // Hook for validating posix_memalign using wmemcheck_state.
 #[cfg(feature = "wmemcheck")]
 unsafe fn check_posix_memalign(instance: &mut Instance, outptr: u32, size: u32) -> Result<u32> {

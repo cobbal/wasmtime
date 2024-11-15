@@ -50,6 +50,9 @@ macro_rules! foreach_builtin_function {
             // Invoked before realloc returns.
             #[cfg(feature = "wmemcheck")]
             check_realloc(vmctx: vmctx, end_addr: i32, start_addr: i32, len: i32) -> i32;
+            // Invoked before malloc_usable_size returns.
+            #[cfg(feature = "wmemcheck")]
+            check_malloc_usable_size(vmctx: vmctx, len: i32, addr: i32) -> i32;
             // Invoked before posix_memalign returns.
             #[cfg(feature = "wmemcheck")]
             check_posix_memalign(vmctx: vmctx, outptr: i32, size: i32) -> i32;
